@@ -149,8 +149,8 @@ function absDisplay(a){
   return a<50 ? '+'+a : '-'+(100-a);
 }
 function absLabel(a){
-  if(a===50)return'Midfield';
-  return a<50 ? 'Our '+a : 'Their '+(100-a);
+  if(a===50)return'50 (Mid)';
+  return a<50 ? '+'+a : '-'+(100-a);
 }
 function isRZ(a){return a<=20;}
 function yardColor(a){
@@ -224,7 +224,16 @@ function pullPlayer(pos){
 
 // ── Assign player ─────────────────────────────────────────────────────────────
 function assignPlayer(pos,id){
-  POS.forEach(p=>{if(S.onField[p]===id)S.onField[p]=null;});
+  // Reset streak of whoever is being replaced in this slot
+  const outgoing=S.onField[pos];
+  if(outgoing && outgoing!==id) S.streak[outgoing]=0;
+  // If the incoming player was in another slot, reset that slot too
+  POS.forEach(p=>{
+    if(S.onField[p]===id && p!==pos){
+      S.onField[p]=null;
+      // no streak reset here — player is just moving positions, not being pulled
+    }
+  });
   S.onField[pos]=id;
   S.assignPos=null;
 }
@@ -331,58 +340,82 @@ function renderPCard(pos){
 }
 
 // ── Render yard setter ────────────────────────────────────────────────────────
+// Design: 2 taps max. Tap 1 = side (+ or −). Tap 2 = yard number from big grid.
+// Fine stepper available for exact numbers not on grid.
+// No red/green on setter — neutral colors only.
 function renderYardSetter(val, changeFunc, label){
-  const col=yardColor(val);
   const isPlus=val<50, isMid=val===50;
   const ynv=yn(val);
-  const btnBg=isPlus?'#3A0A0A':isMid?'#1A2A3A':'#0A2A10';
-  const signLabel=isPlus?'+':isMid?'±':'−';
-  const quickBtns=[5,10,20,30,40,50].map(y=>{
+  // Side toggle colors — gold = active, dark = inactive, no red/green
+  const plusBg=isPlus?'#2A1E00':'#0D1A30';
+  const plusColor=isPlus?GOLD:'#4A6A9A';
+  const minusBg=(!isPlus&&!isMid)?'#1A2040':'#0D1A30';
+  const minusColor=(!isPlus&&!isMid)?'#8AAAD0':'#4A6A9A';
+  const midBg=isMid?'#1A2A3A':'#0D1A30';
+  const midColor=isMid?'#AAD0FF':'#4A6A9A';
+  // Current display — gold always, no danger coloring on setter
+  const displayVal=isMid?'50':isPlus?`+${ynv}`:`-${ynv}`;
+  // Grid: 5,10,15,20,25 / 30,35,40,45,Mid — 2 rows of 5
+  const gridNums=[5,10,15,20,25,30,35,40,45,50];
+  const gridBtns=gridNums.map(y=>{
     const active=(val<50&&val===y)||(val>50&&100-val===y)||(val===50&&y===50);
-    return `<button onclick="${changeFunc}_quick(${y})" style="padding:9px 10px;border-radius:6px;font-weight:700;font-size:12px;border:none;background:${active?'#2A5090':'#0D1A30'};color:${active?'#CDE':'#6A8AAA'};">${y===50?'Mid':y}</button>`;
-  }).join('');
+    const lbl=y===50?'Mid':y;
+    return `<button onclick="${changeFunc}_quick(${y})" style="flex:1;padding:14px 0;border-radius:10px;font-weight:700;font-size:15px;border:none;background:${active?'#1E3A60':'#0D1A30'};color:${active?GOLD:'#5A7AAA'};">${lbl}</button>`;
+  });
+  const row1=gridBtns.slice(0,5).join('');
+  const row2=gridBtns.slice(5,10).join('');
   return `
     <div class="card" style="margin-bottom:0;">
-      ${label?`<div style="font-size:10px;font-weight:700;color:${GOLD};letter-spacing:1px;margin-bottom:10px;">${label}</div>`:''}
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <button onclick="${changeFunc}_flip()" style="padding:10px 14px;font-weight:900;font-size:20px;border:none;border-radius:8px;background:${btnBg};color:${col};min-width:52px;">${signLabel}</button>
-        <button onclick="${changeFunc}_dec()" style="background:#0D1A30;color:#AAC;border:none;border-radius:8px;padding:12px 14px;font-size:22px;">−</button>
-        <span style="font-size:32px;font-weight:900;color:${col};min-width:48px;text-align:center;">${ynv}</span>
-        <button onclick="${changeFunc}_inc()" style="background:#0D1A30;color:#AAC;border:none;border-radius:8px;padding:12px 14px;font-size:22px;">+</button>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;">${quickBtns}</div>
+      ${label?`<div style="font-size:10px;font-weight:700;color:${GOLD};letter-spacing:1px;margin-bottom:12px;">${label}</div>`:''}
+      <!-- Side toggle: big + and − buttons -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button onclick="${changeFunc}_setside('plus')" style="flex:1;padding:16px 0;font-weight:900;font-size:24px;border:none;border-radius:10px;background:${plusBg};color:${plusColor};">+</button>
+        <button onclick="${changeFunc}_setside('mid')" style="flex:0.6;padding:16px 0;font-weight:700;font-size:14px;border:none;border-radius:10px;background:${midBg};color:${midColor};">Mid<br><span style="font-size:11px;opacity:0.7;">50</span></button>
+        <button onclick="${changeFunc}_setside('minus')" style="flex:1;padding:16px 0;font-weight:900;font-size:24px;border:none;border-radius:10px;background:${minusBg};color:${minusColor};">−</button>
       </div>
-      <div style="margin-top:8px;font-size:12px;color:#8AAAD0;">📍 ${absLabel(val)}</div>
+      <!-- Current value + fine stepper -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;background:#0D1A30;border-radius:10px;padding:8px 12px;">
+        <button onclick="${changeFunc}_dec()" style="background:#1A2A40;color:#8AAAD0;border:none;border-radius:8px;padding:12px 18px;font-size:24px;font-weight:700;">−</button>
+        <div style="flex:1;text-align:center;">
+          <span style="font-size:38px;font-weight:900;color:${GOLD};">${displayVal}</span>
+          <div style="font-size:11px;color:#5A7AAA;margin-top:2px;">yard line</div>
+        </div>
+        <button onclick="${changeFunc}_inc()" style="background:#1A2A40;color:#8AAAD0;border:none;border-radius:8px;padding:12px 18px;font-size:24px;font-weight:700;">+</button>
+      </div>
+      <!-- Grid row 1 -->
+      <div style="display:flex;gap:6px;margin-bottom:6px;">${row1}</div>
+      <!-- Grid row 2 -->
+      <div style="display:flex;gap:6px;">${row2}</div>
     </div>`;
 }
 
 // Yard setter action functions
-function mainPos_flip(){S.absPos=flipPos(S.absPos);saveAll();render();}
-function mainPos_dec(){S.absPos=Math.max(1,S.absPos-1);saveAll();render();}
-function mainPos_inc(){S.absPos=Math.min(99,S.absPos+1);saveAll();render();}
-function mainPos_quick(y){
-  if(y===50){S.absPos=50;}
-  else if(S.absPos<=50)S.absPos=y;
-  else S.absPos=100-y;
+// setside: 'plus' = their territory (offense close), 'minus' = our territory, 'mid' = 50
+function _setSide(key, side){
+  if(side==='mid'){S[key]=50;}
+  else if(side==='plus'){if(S[key]===50||S[key]>50)S[key]=Math.min(49,100-S[key]===50?20:100-S[key]);}
+  else{if(S[key]===50||S[key]<50)S[key]=Math.max(51,100-S[key]===50?80:100-S[key]);}
+  if(S[key]===50 && side!=='mid')S[key]=side==='plus'?20:80;
   saveAll();render();
 }
-function puntPos_flip(){S.puntPos=flipPos(S.puntPos);saveAll();render();}
-function puntPos_dec(){S.puntPos=Math.max(1,S.puntPos-1);saveAll();render();}
-function puntPos_inc(){S.puntPos=Math.min(99,S.puntPos+1);saveAll();render();}
-function puntPos_quick(y){
-  if(y===50){S.puntPos=50;}
-  else if(S.puntPos<=50)S.puntPos=y;
-  else S.puntPos=100-y;
+function _setQuick(key, y){
+  if(y===50){S[key]=50;}
+  else if(S[key]<50)S[key]=y;   // currently + side, stay +
+  else S[key]=100-y;             // currently − side, stay −
   saveAll();render();
 }
-function turnPos_flip(){S.turnPos=flipPos(S.turnPos);saveAll();render();}
-function turnPos_dec(){S.turnPos=Math.max(1,S.turnPos-1);saveAll();render();}
-function turnPos_inc(){S.turnPos=Math.min(99,S.turnPos+1);saveAll();render();}
-function turnPos_quick(y){
-  if(y===50){S.turnPos=50;}
-  else if(S.turnPos<=50)S.turnPos=y;
-  else S.turnPos=100-y;
-  saveAll();render();
-}
+function mainPos_setside(s){_setSide('absPos',s);}
+function mainPos_dec(){S.absPos=S.absPos===50?49:Math.max(1,S.absPos-1);saveAll();render();}
+function mainPos_inc(){S.absPos=S.absPos===50?51:Math.min(99,S.absPos+1);saveAll();render();}
+function mainPos_quick(y){_setQuick('absPos',y);}
+function puntPos_setside(s){_setSide('puntPos',s);}
+function puntPos_dec(){S.puntPos=S.puntPos===50?49:Math.max(1,S.puntPos-1);saveAll();render();}
+function puntPos_inc(){S.puntPos=S.puntPos===50?51:Math.min(99,S.puntPos+1);saveAll();render();}
+function puntPos_quick(y){_setQuick('puntPos',y);}
+function turnPos_setside(s){_setSide('turnPos',s);}
+function turnPos_dec(){S.turnPos=S.turnPos===50?49:Math.max(1,S.turnPos-1);saveAll();render();}
+function turnPos_inc(){S.turnPos=S.turnPos===50?51:Math.min(99,S.turnPos+1);saveAll();render();}
+function turnPos_quick(y){_setQuick('turnPos',y);}
 
 function adjustResult(delta){S.resultYds+=delta;saveAll();render();}
 function setResult(y){S.resultYds=y;saveAll();render();}
@@ -753,11 +786,21 @@ function render(){
   if(S.assignPos) renderAssignSheet();
   else if(!S.showAdd) document.getElementById('sheet-container').innerHTML='';
   if(S.showAdd) renderModal();
+  else document.getElementById('modal-container').innerHTML='';
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 loadAll();
 render();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/Friday_Night_Tracker/sw.js')
+      .catch(err => console.log('SW registration failed:', err));
+  });
+}
 </script>
 </body>
 </html>
